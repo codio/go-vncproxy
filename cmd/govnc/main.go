@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"net/http"
 	"os"
@@ -67,7 +66,7 @@ func runProxy(port int, vncPort int) {
 		f := os.NewFile(3, "from systemd")
 		listener, err := net.FileListener(f)
 		if err != nil {
-			log.Fatal(err)
+			panic(err)
 		}
 		if err := router.RunListener(listener); err != nil {
 			panic(err)
