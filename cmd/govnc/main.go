@@ -19,7 +19,7 @@ func main() {
 	parser := argparse.NewParser("govnc", "VNCProxy for novnc")
 	vncPort := parser.Int("s", "vncport", &argparse.Options{Required: false, Default: 5900, Help: "VNC port"})
 	port := parser.Int("p", "port", &argparse.Options{Required: false, Default: 8080, Help: "VNC port"})
-	version := parser.String("v", "version", &argparse.Options{Required: false, Default: "v1.0.0-clipboard-focus-a.1-dev", Help: "NOVNC client version"})
+	version := parser.String("v", "version", &argparse.Options{Required: false, Default: "v1.0.0-a.5-dev", Help: "NOVNC client version"})
 	err := parser.Parse(os.Args)
 
 	if err != nil {
@@ -43,6 +43,7 @@ func loadIndex(version string) string {
 }
 
 func runProxy(port int, vncPort int) {
+	gin.SetMode(gin.ReleaseMode)
 	router := gin.Default()
 
 	vncProxy := NewVNCProxy(vncPort)
