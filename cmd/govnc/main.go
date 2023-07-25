@@ -15,7 +15,7 @@ import (
 	"golang.org/x/net/websocket"
 )
 
-const NoVncVersion = "v1.0.0-a.8-dev"
+const NoVncVersion = "v1.0.0"
 
 var indexHTML string
 
