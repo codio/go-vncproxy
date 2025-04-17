@@ -1,6 +1,7 @@
 package vncproxy
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 	"sync"
@@ -17,6 +18,7 @@ type Config struct {
 	Logger      Logger
 	DialTimeout time.Duration
 	TokenHandler
+	ErrorCh chan error
 }
 
 // Proxy represents vnc proxy
@@ -27,7 +29,15 @@ type Proxy struct {
 	peers        map[*peer]struct{}
 	l            sync.RWMutex
 	tokenHandler TokenHandler
+	errorCh      chan error
 }
+
+var (
+	ErrGetVNCBackend = errors.New("failed to get VNC backend")
+	ErrNewVNCPeer    = errors.New("failed to create VNC peer")
+	ErrReadSource    = errors.New("failed to read source")
+	ErrReadTarget    = errors.New("failed to read target")
+)
 
 // New returns a vnc proxy
 // If token handler is nil, vnc backend address will always be :5901
@@ -59,12 +69,14 @@ func (p *Proxy) ServeWS(ws *websocket.Conn) {
 	// get vnc backend server addr
 	addr, err := p.tokenHandler(r)
 	if err != nil {
+		p.pushErrorTop(ErrGetVNCBackend)
 		p.logger.Infof("get vnc backend failed: %v", err)
 		return
 	}
 
 	peer, err := NewPeer(ws, addr, p.dialTimeout)
 	if err != nil {
+		p.pushErrorTop(ErrNewVNCPeer)
 		p.logger.Infof("new vnc peer failed: %v", err)
 		return
 	}
@@ -80,6 +92,7 @@ func (p *Proxy) ServeWS(ws *websocket.Conn) {
 			if strings.Contains(err.Error(), "use of closed network connection") {
 				return
 			}
+			p.pushErrorTop(ErrReadTarget)
 			p.logger.Info(err)
 			return
 		}
@@ -89,6 +102,7 @@ func (p *Proxy) ServeWS(ws *websocket.Conn) {
 		if strings.Contains(err.Error(), "use of closed network connection") {
 			return
 		}
+		p.pushErrorTop(ErrReadSource)
 		p.logger.Info(err)
 		return
 	}
@@ -111,4 +125,10 @@ func (p *Proxy) Peers() map[*peer]struct{} {
 	p.l.RLock()
 	defer p.l.RUnlock()
 	return p.peers
+}
+
+func (p *Proxy) pushErrorTop(err error) {
+	if p.errorCh != nil {
+		p.errorCh <- err
+	}
 }
