@@ -55,6 +55,7 @@ func New(conf *Config) *Proxy {
 		peers:        make(map[*peer]struct{}),
 		l:            sync.RWMutex{},
 		tokenHandler: conf.TokenHandler,
+		errorCh:      conf.ErrorCh,
 	}
 }
 
