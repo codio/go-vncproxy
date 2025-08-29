@@ -58,17 +58,22 @@ func runProxy(opts RunOpts) error {
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.Default()
 
+	pathPrefix := ""
 	if opts.StrictAuth {
 		secret := os.Getenv(envVariables.authSignSecret)
 		if secret == "" {
 			return fmt.Errorf("strict auth is enabled, but env variable %s is not set", envVariables.authSignSecret)
+		}
+		authLocation := AuthLocation.PathParams
+		if authLocation == AuthLocation.PathParams {
+			pathPrefix = "/:key/:sign"
 		}
 		authenticator := NewAuthenticator(secret, AuthLocation.Headers)
 		router.Use(authenticator.Middleware())
 	}
 
 	vncProxy := NewVNCProxy(opts.VncPort)
-	router.GET("/websockify", func(ctx *gin.Context) {
+	router.GET(fmt.Sprintf("%s/websockify", pathPrefix), func(ctx *gin.Context) {
 		h := websocket.Handler(vncProxy.ServeWS)
 		h.ServeHTTP(ctx.Writer, ctx.Request)
 	})
@@ -77,8 +82,8 @@ func runProxy(opts RunOpts) error {
 		c.String(http.StatusOK, "pong")
 	})
 
-	router.GET("/index.html", serveIndex)
-	router.GET("/", serveIndex)
+	router.GET(fmt.Sprintf("%s/index.html", pathPrefix), serveIndex)
+	router.GET(fmt.Sprintf("%s/", pathPrefix), serveIndex)
 
 	if os.Getenv(envVariables.listenPid) == strconv.Itoa(os.Getpid()) {
 		// systemd socket activation

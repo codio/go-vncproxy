@@ -5,6 +5,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"net/http"
+	"slices"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 )
@@ -24,9 +26,15 @@ type AuthLocationType int
 var AuthLocation = struct {
 	Headers     AuthLocationType
 	QueryParams AuthLocationType
+	PathParams  AuthLocationType
 }{
 	Headers:     0,
 	QueryParams: 1,
+	PathParams:  2,
+}
+
+var pathsWithoutSign = []string{
+	"/ping",
 }
 
 func NewAuthenticator(secret string, authLocation AuthLocationType) *Authenticator {
@@ -36,6 +44,8 @@ func NewAuthenticator(secret string, authLocation AuthLocationType) *Authenticat
 		extractor = extractFromHeaders
 	case AuthLocation.QueryParams:
 		extractor = extractFromQueryParams
+	case AuthLocation.PathParams:
+		extractor = extractFromPathParams
 	default:
 		extractor = extractFromHeaders
 	}
@@ -59,8 +69,21 @@ func extractFromQueryParams(c *gin.Context) Credentials {
 	}
 }
 
+func extractFromPathParams(c *gin.Context) Credentials {
+	return Credentials{
+		Key:  c.Param("key"),
+		Sign: c.Param("sign"),
+	}
+}
+
 func (a *Authenticator) Middleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if slices.ContainsFunc(pathsWithoutSign, func(i string) bool {
+			return strings.HasPrefix(c.Request.URL.Path, i)
+		}) {
+			c.Next()
+			return
+		}
 		credentials := a.credentialsExtractor(c)
 		if !a.validateCredentials(credentials) {
 			c.AbortWithStatus(http.StatusForbidden)
