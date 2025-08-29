@@ -12,7 +12,7 @@ else
     git diff origin/master version | grep +baseVersion
   else
     echo "Error: 'version' file does not exist in origin/master."
-    exis $0
+    exit 0
 #    exit ${ret}
   fi
 fi
