@@ -11,6 +11,8 @@ else
   if [[ ${ret} -eq 0 ]]; then
     git diff origin/master version | grep +baseVersion
   else
-    exit ${ret}
+    echo "Error: 'version' file does not exist in origin/master."
+    exis $0
+#    exit ${ret}
   fi
 fi
