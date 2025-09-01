@@ -37,7 +37,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GOPRIVATE: "github.com/codio/*"
-          GORELEASER_CURRENT_TAG: ${{ env.APP_VERSION }}
+          APP_VERSION: ${{ env.APP_VERSION }}
 
       - name: Tar Folder
         run: tar czf ../release.tgz ./
