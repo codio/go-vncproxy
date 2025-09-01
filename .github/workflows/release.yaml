@@ -1,61 +1,51 @@
-name: Publish New Release
+
+name: Build release
 on: push
 
+env:
+  PRE_PATH: ""
+
+permissions:
+  contents: write
+
 jobs:
-  releases-matrix:
-    name: Release Go Binary
+  goreleaser:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        goos: [linux]
-        goarch: [amd64]
     steps:
-    - uses: actions/checkout@v4
-    - uses: actions/setup-go@v5
-      with:
-        go-version: '^1.24'
+      -
+        name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      -
+        name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '^1.22'
 
-    - name: Get Current Branch
-      id: get-branch
-      uses: codio/get-branch-name-github-action@v1
+      - name: Set APP_VERSION
+        id: set_version
+        run: echo "APP_VERSION=$(sh setversion.sh)" >> $GITHUB_ENV
 
-    - name: check if version was changed
-      run: ./version-changed.sh
+      -
+        name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: latest
+          args: release --clean --skip validate
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GOPRIVATE: "github.com/codio/*"
+          GORELEASER_CURRENT_TAG: ${{ env.APP_VERSION }}
 
-    - name: make dist
-      run: mkdir -p dist
+      - name: Tar Folder
+        run: tar czf ../release.tgz ./
+        working-directory: dist
 
-    - name: build
-      run: ./build.sh "dist" ${{ github.ref_name }}
-      env:
-        CGO_ENABLED: 0
-        GOOS: ${{ matrix.goos }}
-        GOARCH: ${{ matrix.goarch }}
-
-    - name: additional items
-      run: cp README.md dist/
-
-    - name: Tar Folder
-      if: ${{ matrix.goos != 'windows'}}
-      run: tar czf ../release.tgz ./
-      working-directory: dist
-
-
-    - name: Upload To Artifactory
-      if: ${{ matrix.goos != 'windows'}}
-      run: curl --fail -i -u"${BINARY_REPOSITORY_CREDENTIALS}" -T release.tgz "${BINARY_REPOSITORY_URL}/component-builds/govnc-${GIT_HASH}.tar.gz"
-      env: 
-        BINARY_REPOSITORY_URL: ${{ secrets.BINARY_REPOSITORY_URL }}
-        GIT_HASH: ${{ github.sha }}
-        BINARY_REPOSITORY_CREDENTIALS: ${{ secrets.BINARY_REPOSITORY_USER }}:${{ secrets.BINARY_REPOSITORY_PASSWORD }}
-
-    - name: Upload release assets
-      if: ${{ github.ref_name == 'master' }}
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ github.event.release.upload_url }}
-        asset_name: govnc-${{ matrix.goos }}-${{ matrix.goarch }}.${{ matrix.goos == 'windows' && 'zip' || 'tgz' }}
-        asset_path: ${{ matrix.goos == 'windows' && 'release.zip' || 'release.tgz' }}
-        asset_content_type: application/octet-stream
+      - name: Upload To Artifactory
+        run: curl --fail -i -u"${BINARY_REPOSITORY_CREDENTIALS}" -T release.tgz "${BINARY_REPOSITORY_URL}/component-builds/govnc-${GIT_HASH}.tar.gz"
+        env:
+          BINARY_REPOSITORY_URL: ${{ secrets.BINARY_REPOSITORY_URL }}
+          GIT_HASH: ${{ github.sha }}
+          BINARY_REPOSITORY_CREDENTIALS: ${{ secrets.BINARY_REPOSITORY_USER }}:${{ secrets.BINARY_REPOSITORY_PASSWORD }}
