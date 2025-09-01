@@ -68,7 +68,7 @@ func runProxy(opts RunOpts) error {
 		if authLocation == AuthLocation.PathParams {
 			pathPrefix = "/:key/:sign"
 		}
-		authenticator := NewAuthenticator(secret, AuthLocation.Headers)
+		authenticator := NewAuthenticator(secret, authLocation)
 		router.Use(authenticator.Middleware())
 	}
 
