@@ -27,8 +27,20 @@ jobs:
         id: set_version
         run: echo "APP_VERSION=$(sh setversion.sh)" >> $GITHUB_ENV
 
-      -
-        name: Run GoReleaser
+      - name: Run GoReleaser (prerelease)
+        if: github.ref != 'refs/heads/master'
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: latest
+          args: release --clean --skip validate --prerelease
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GOPRIVATE: "github.com/codio/*"
+          APP_VERSION: ${{ env.APP_VERSION }}
+
+      - name: Run GoReleaser (release)
+        if: github.ref == 'refs/heads/master'
         uses: goreleaser/goreleaser-action@v6
         with:
           distribution: goreleaser
