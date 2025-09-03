@@ -78,9 +78,7 @@ func extractFromPathParams(c *gin.Context) Credentials {
 
 func (a *Authenticator) Middleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if slices.ContainsFunc(pathsWithoutSign, func(i string) bool {
-			return strings.HasPrefix(c.Request.URL.Path, i)
-		}) {
+		if slices.ContainsFunc(pathsWithoutSign, hasPathPrefix(c.Request.URL.Path)) {
 			c.Next()
 			return
 		}
@@ -90,6 +88,12 @@ func (a *Authenticator) Middleware() gin.HandlerFunc {
 			return
 		}
 		c.Next()
+	}
+}
+
+func hasPathPrefix(path string) func(string) bool {
+	return func(prefix string) bool {
+		return strings.HasPrefix(path, prefix)
 	}
 }
 
