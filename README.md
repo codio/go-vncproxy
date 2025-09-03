@@ -48,3 +48,7 @@ func NewVNCProxy() *vncproxy.Proxy {
 	})
 }
 ```
+
+# Authentication
+for strict authentication, you can use flag '-auth-strict', it will check the authentication result of vnc server, if failed, it will close the connection.
+to set the secret use the environment variable 'GOVNC_SIGN_SECRET'
