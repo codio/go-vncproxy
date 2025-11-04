@@ -1,32 +1,29 @@
 package vncproxy
 
 import (
+	"io"
 	"net"
 	"time"
 
-	"github.com/evangwt/go-bufcopy"
-
 	"github.com/pkg/errors"
 
-	"golang.org/x/net/websocket"
+	"github.com/gorilla/websocket"
 )
 
 const (
 	defaultDialTimeout = 5 * time.Second
+	bufSize            = 32 * 1024
 )
 
-var (
-	bcopy = bufcopy.New()
-)
-
-// peer represents a vnc proxy peer
+// Peer represents a vnc proxy peer
 // with a websocket connection and a vnc backend connection
-type peer struct {
+type Peer struct {
 	source *websocket.Conn
 	target net.Conn
+	logger *logger
 }
 
-func NewPeer(ws *websocket.Conn, addr string, dialTimeout time.Duration) (*peer, error) {
+func NewPeer(ws *websocket.Conn, addr string, dialTimeout time.Duration, log *logger) (*Peer, error) {
 	if ws == nil {
 		return nil, errors.New("websocket connection is nil")
 	}
@@ -54,47 +51,72 @@ func NewPeer(ws *websocket.Conn, addr string, dialTimeout time.Duration) (*peer,
 	}
 
 	// 10 seconds timer to support connection open
-	// TODO update websockerts to https://github.com/gorilla/websocket
 	go func() {
 		ticker := time.NewTicker(10 * time.Second)
 		defer ticker.Stop()
 		for {
 			select {
 			case <-ticker.C:
-				codec := websocket.Codec{Marshal: func(v interface{}) (data []byte, payloadType byte, err error) {
-					return nil, websocket.PingFrame, nil
-				}}
-				if err := codec.Send(ws, nil); err != nil {
+				pingErr := ws.WriteMessage(websocket.PingMessage, []byte{})
+				if pingErr != nil {
 					ws.Close()
 				}
 			}
 		}
 	}()
 
-	return &peer{
+	return &Peer{
 		source: ws,
 		target: c,
+		logger: log,
 	}, nil
 }
 
 // ReadSource copy source stream to target connection
-func (p *peer) ReadSource() error {
-	if _, err := bcopy.Copy(p.target, p.source); err != nil {
-		return errors.Wrapf(err, "copy source(%v) => target(%v) failed", p.source.RemoteAddr(), p.target.RemoteAddr())
+func (p *Peer) ReadSource() error {
+	buf := make([]byte, bufSize)
+	for {
+		messageType, reader, err := p.source.NextReader()
+		if err != nil {
+			return errors.Wrapf(err, "read from source(%v) failed", p.source.RemoteAddr())
+		}
+		if messageType != websocket.BinaryMessage {
+			continue
+		}
+		for {
+			n, err2 := reader.Read(buf)
+			if errors.Is(err2, io.EOF) {
+				break
+			}
+			if err2 != nil {
+				p.logger.Debugf("finished reading a websocket message, err: %v", err2)
+				break
+			}
+			_, writeErr := p.target.Write(buf[:n])
+			if writeErr != nil {
+				return errors.Wrapf(writeErr, "write to target(%v) failed", p.target.RemoteAddr())
+			}
+		}
 	}
-	return nil
 }
 
-// ReadTarget copys target stream to source connection
-func (p *peer) ReadTarget() error {
-	if _, err := bcopy.Copy(p.source, p.target); err != nil {
-		return errors.Wrapf(err, "copy target(%v) => source(%v) failed", p.target.RemoteAddr(), p.source.RemoteAddr())
+// ReadTarget copy target stream to source connection
+func (p *Peer) ReadTarget() error {
+	buf := make([]byte, bufSize)
+	for {
+		n, err := p.target.Read(buf)
+		if err != nil {
+			return errors.Wrapf(err, "read from target(%v) failed", p.target.RemoteAddr())
+		}
+		writeErr := p.source.WriteMessage(websocket.BinaryMessage, buf[:n])
+		if writeErr != nil {
+			return errors.Wrapf(writeErr, "write to source(%v) failed", p.source.RemoteAddr())
+		}
 	}
-	return nil
 }
 
 // Close close the websocket connection and the vnc backend connection
-func (p *peer) Close() {
+func (p *Peer) Close() {
 	p.source.Close()
 	p.target.Close()
 }
