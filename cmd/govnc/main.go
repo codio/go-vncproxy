@@ -10,7 +10,7 @@ import (
 	"github.com/akamensky/argparse"
 )
 
-const NoVncVersion = "v1.2.0"
+const NoVncVersion = "v1.3.0"
 
 var version = "dev"
 
