@@ -10,8 +10,13 @@ import (
 
 	"github.com/codio/go-vncproxy/pkg/go-vncproxy"
 	"github.com/gin-gonic/gin"
-	"golang.org/x/net/websocket"
+	"github.com/gorilla/websocket"
 )
+
+var upgrader = websocket.Upgrader{
+	ReadBufferSize:  1024,
+	WriteBufferSize: 1024,
+}
 
 var envVariables = struct {
 	listenPid      string
@@ -74,8 +79,15 @@ func runProxy(opts RunOpts) error {
 
 	vncProxy := NewVNCProxy(opts.VncPort)
 	router.GET(fmt.Sprintf("%s/websockify", pathPrefix), func(ctx *gin.Context) {
-		h := websocket.Handler(vncProxy.ServeWS)
-		h.ServeHTTP(ctx.Writer, ctx.Request)
+		conn, err := upgrader.Upgrade(ctx.Writer, ctx.Request, nil)
+		if err != nil {
+			ctx.AbortWithError(http.StatusInternalServerError, err)
+			return
+		}
+		defer func(conn *websocket.Conn) {
+			_ = conn.Close()
+		}(conn)
+		vncProxy.ServeWS(conn, ctx.Request)
 	})
 
 	router.GET("/ping", func(c *gin.Context) {

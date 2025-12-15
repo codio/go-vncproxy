@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"golang.org/x/net/websocket"
+	"github.com/gorilla/websocket"
 )
 
 type TokenHandler func(r *http.Request) (addr string, err error)
@@ -26,7 +26,7 @@ type Proxy struct {
 	logLevel     uint32
 	logger       *logger
 	dialTimeout  time.Duration // Timeout for connecting to each target vnc server
-	peers        map[*peer]struct{}
+	peers        map[*Peer]struct{}
 	l            sync.RWMutex
 	tokenHandler TokenHandler
 	errorCh      chan error
@@ -52,7 +52,7 @@ func New(conf *Config) *Proxy {
 		logLevel:     conf.LogLevel,
 		logger:       NewLogger(conf.LogLevel, conf.Logger),
 		dialTimeout:  conf.DialTimeout,
-		peers:        make(map[*peer]struct{}),
+		peers:        make(map[*Peer]struct{}),
 		l:            sync.RWMutex{},
 		tokenHandler: conf.TokenHandler,
 		errorCh:      conf.ErrorCh,
@@ -60,22 +60,18 @@ func New(conf *Config) *Proxy {
 }
 
 // ServeWS provides websocket handler
-func (p *Proxy) ServeWS(ws *websocket.Conn) {
+func (p *Proxy) ServeWS(ws *websocket.Conn, request *http.Request) {
 	p.logger.Debugf("ServeWS")
-	ws.PayloadType = websocket.BinaryFrame
-
-	r := ws.Request()
-	p.logger.Debugf("request url: %v", r.URL)
-
+	p.logger.Debugf("request url: %v", request.URL)
 	// get vnc backend server addr
-	addr, err := p.tokenHandler(r)
+	addr, err := p.tokenHandler(request)
 	if err != nil {
 		p.pushErrorTop(ErrGetVNCBackend)
 		p.logger.Infof("get vnc backend failed: %v", err)
 		return
 	}
 
-	peer, err := NewPeer(ws, addr, p.dialTimeout)
+	peer, err := NewPeer(ws, addr, p.dialTimeout, p.logger)
 	if err != nil {
 		p.pushErrorTop(ErrNewVNCPeer)
 		p.logger.Infof("new vnc peer failed: %v", err)
@@ -89,12 +85,12 @@ func (p *Proxy) ServeWS(ws *websocket.Conn) {
 	}()
 
 	go func() {
-		if err := peer.ReadTarget(); err != nil {
-			if strings.Contains(err.Error(), "use of closed network connection") {
+		if err2 := peer.ReadTarget(); err2 != nil {
+			if strings.Contains(err2.Error(), "use of closed network connection") {
 				return
 			}
 			p.pushErrorTop(ErrReadTarget)
-			p.logger.Info(err)
+			p.logger.Info(err2)
 			return
 		}
 	}()
@@ -109,20 +105,20 @@ func (p *Proxy) ServeWS(ws *websocket.Conn) {
 	}
 }
 
-func (p *Proxy) addPeer(peer *peer) {
+func (p *Proxy) addPeer(peer *Peer) {
 	p.l.Lock()
 	p.peers[peer] = struct{}{}
 	p.l.Unlock()
 }
 
-func (p *Proxy) deletePeer(peer *peer) {
+func (p *Proxy) deletePeer(peer *Peer) {
 	p.l.Lock()
 	delete(p.peers, peer)
 	peer.Close()
 	p.l.Unlock()
 }
 
-func (p *Proxy) Peers() map[*peer]struct{} {
+func (p *Proxy) Peers() map[*Peer]struct{} {
 	p.l.RLock()
 	defer p.l.RUnlock()
 	return p.peers

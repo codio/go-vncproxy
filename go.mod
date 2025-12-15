@@ -6,6 +6,7 @@ require (
 	github.com/akamensky/argparse v1.4.0
 	github.com/evangwt/go-bufcopy v0.1.1
 	github.com/gin-gonic/gin v1.10.1
+	github.com/gorilla/websocket v1.5.3
 	github.com/pkg/errors v0.9.1
 	golang.org/x/net v0.43.0
 )
