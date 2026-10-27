@@ -1,5 +1,6 @@
 name: Publish New Release
 on:
+  push:
   release:
     types: [created]
 
@@ -56,10 +57,16 @@ jobs:
           role-to-assume: arn:aws:iam::878986216776:role/Github/GithubECRUploadRole_go-vncproxy
           role-session-name: GithubAction
 
-      - name: Upload the release to codio-build-artifacts/master/
+      - name: Upload to codio-build-artifacts/branches/
+        if: github.event_name == 'push'
+        run: aws s3 cp upload/ s3://codio-build-artifacts/branches/go-vncproxy/ --recursive
+
+      - name: Upload to codio-build-artifacts/master/
+        if: github.event_name == 'release' || github.ref_name == 'master' || github.ref_name == 'main'
         run: aws s3 cp upload/ s3://codio-build-artifacts/master/go-vncproxy/ --recursive
 
       - name: Upload release assets
+        if: github.event_name == 'release'
         run: gh release upload "$GITHUB_REF_NAME" "release.tgz#govnc-${{ matrix.goos }}-${{ matrix.goarch }}.tgz"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
