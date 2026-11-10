@@ -85,6 +85,7 @@ func (p *Proxy) ServeWS(ws *websocket.Conn, request *http.Request) {
 	}()
 
 	go func() {
+		defer peer.Close()
 		if err2 := peer.ReadTarget(); err2 != nil {
 			if strings.Contains(err2.Error(), "use of closed network connection") {
 				return

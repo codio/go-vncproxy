@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"net/http"
 	"slices"
-	"strings"
 
 	"github.com/gin-gonic/gin"
 )
@@ -78,29 +77,25 @@ func extractFromPathParams(c *gin.Context) Credentials {
 
 func (a *Authenticator) Middleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if slices.ContainsFunc(pathsWithoutSign, hasPathPrefix(c.Request.URL.Path)) {
+		if slices.Contains(pathsWithoutSign, c.Request.URL.Path) {
 			c.Next()
 			return
 		}
 		credentials := a.credentialsExtractor(c)
 		if !a.validateCredentials(credentials) {
-			c.AbortWithStatus(http.StatusForbidden)
+			abortWithErrorPage(c, http.StatusForbidden)
 			return
 		}
 		c.Next()
 	}
 }
 
-func hasPathPrefix(path string) func(string) bool {
-	return func(prefix string) bool {
-		return strings.HasPrefix(path, prefix)
-	}
-}
-
 func (a *Authenticator) validateCredentials(credentials Credentials) bool {
+	sign, err := hex.DecodeString(credentials.Sign)
+	if err != nil {
+		return false
+	}
 	mac := hmac.New(sha256.New, a.secret)
 	mac.Write([]byte(credentials.Key))
-	expectedMAC := mac.Sum(nil)
-	expectedSign := hex.EncodeToString(expectedMAC)
-	return credentials.Sign == expectedSign
+	return hmac.Equal(sign, mac.Sum(nil))
 }

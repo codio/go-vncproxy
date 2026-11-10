@@ -52,3 +52,5 @@ func NewVNCProxy() *vncproxy.Proxy {
 # Authentication
 for strict authentication, you can use flag '-auth-strict', it will check the authentication result of vnc server, if failed, it will close the connection.
 to set the secret use the environment variable 'GOVNC_SIGN_SECRET'
+
+to allow embedding the client in an iframe only from specific origins, set the environment variable 'GOVNC_FRAME_ANCESTORS' to a space-separated list of CSP sources, e.g. `https://codio.com https://*.codio.com`. Every response then carries `Content-Security-Policy: frame-ancestors <value>`. When it is not set, no such header is sent.
