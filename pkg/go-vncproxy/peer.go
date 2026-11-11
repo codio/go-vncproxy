@@ -3,6 +3,7 @@ package vncproxy
 import (
 	"io"
 	"net"
+	"sync"
 	"time"
 
 	"github.com/pkg/errors"
@@ -13,14 +14,18 @@ import (
 const (
 	defaultDialTimeout = 5 * time.Second
 	bufSize            = 32 * 1024
+	pingInterval       = 10 * time.Second
+	pingWriteTimeout   = 10 * time.Second
 )
 
 // Peer represents a vnc proxy peer
 // with a websocket connection and a vnc backend connection
 type Peer struct {
-	source *websocket.Conn
-	target net.Conn
-	logger *logger
+	source    *websocket.Conn
+	target    net.Conn
+	logger    *logger
+	done      chan struct{}
+	closeOnce sync.Once
 }
 
 func NewPeer(ws *websocket.Conn, addr string, dialTimeout time.Duration, log *logger) (*Peer, error) {
@@ -42,34 +47,40 @@ func NewPeer(ws *websocket.Conn, addr string, dialTimeout time.Duration, log *lo
 
 	err = c.(*net.TCPConn).SetKeepAlive(true)
 	if err != nil {
+		_ = c.Close()
 		return nil, errors.Wrap(err, "enable vnc backend connection keepalive failed")
 	}
 
 	err = c.(*net.TCPConn).SetKeepAlivePeriod(30 * time.Second)
 	if err != nil {
+		_ = c.Close()
 		return nil, errors.Wrap(err, "set vnc backend connection keepalive period failed")
 	}
 
-	// 10 seconds timer to support connection open
-	go func() {
-		ticker := time.NewTicker(10 * time.Second)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ticker.C:
-				pingErr := ws.WriteMessage(websocket.PingMessage, []byte{})
-				if pingErr != nil {
-					ws.Close()
-				}
-			}
-		}
-	}()
-
-	return &Peer{
+	p := &Peer{
 		source: ws,
 		target: c,
 		logger: log,
-	}, nil
+		done:   make(chan struct{}),
+	}
+	go p.keepAlive()
+	return p, nil
+}
+
+func (p *Peer) keepAlive() {
+	ticker := time.NewTicker(pingInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-p.done:
+			return
+		case <-ticker.C:
+			if err := p.source.WriteControl(websocket.PingMessage, nil, time.Now().Add(pingWriteTimeout)); err != nil {
+				p.Close()
+				return
+			}
+		}
+	}
 }
 
 // ReadSource copy source stream to target connection
@@ -117,6 +128,9 @@ func (p *Peer) ReadTarget() error {
 
 // Close close the websocket connection and the vnc backend connection
 func (p *Peer) Close() {
-	p.source.Close()
-	p.target.Close()
+	p.closeOnce.Do(func() {
+		close(p.done)
+		_ = p.source.Close()
+		_ = p.target.Close()
+	})
 }

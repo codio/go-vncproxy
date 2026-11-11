@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"time"
 
 	"github.com/codio/go-vncproxy/pkg/go-vncproxy"
 	"github.com/gin-gonic/gin"
@@ -21,10 +22,18 @@ var upgrader = websocket.Upgrader{
 var envVariables = struct {
 	listenPid      string
 	authSignSecret string
+	frameAncestors string
 }{
 	listenPid:      "LISTEN_PID",
 	authSignSecret: "GOVNC_SIGN_SECRET",
+	frameAncestors: "GOVNC_FRAME_ANCESTORS",
 }
+
+const (
+	indexLoadTimeout  = 30 * time.Second
+	readHeaderTimeout = 10 * time.Second
+	idleTimeout       = 120 * time.Second
+)
 
 var indexHTML string
 
@@ -39,7 +48,7 @@ func Run(opts RunOpts) error {
 
 func NewVNCProxy(vncport int) *vncproxy.Proxy {
 	return vncproxy.New(&vncproxy.Config{
-		LogLevel: vncproxy.DebugLevel,
+		LogLevel: vncproxy.InfoLevel,
 		// DialTimeout: 10 * time.Second, // customer DialTimeout
 		TokenHandler: func(r *http.Request) (addr string, err error) {
 			return fmt.Sprintf(`:%d`, vncport), nil
@@ -48,9 +57,16 @@ func NewVNCProxy(vncport int) *vncproxy.Proxy {
 }
 
 func loadIndex(version string) (string, error) {
-	resp, err := http.Get(fmt.Sprintf(`https://static-assets.codio.com/noVNC/%s/vnc.html`, version))
+	client := &http.Client{Timeout: indexLoadTimeout}
+	resp, err := client.Get(fmt.Sprintf(`https://static-assets.codio.com/noVNC/%s/vnc.html`, version))
 	if err != nil {
 		return "", err
+	}
+	defer func() {
+		_ = resp.Body.Close()
+	}()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("unexpected status %s", resp.Status)
 	}
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -61,13 +77,51 @@ func loadIndex(version string) (string, error) {
 
 func runProxy(opts RunOpts) error {
 	gin.SetMode(gin.ReleaseMode)
-	router := gin.Default()
+	router, err := newRouter(opts)
+	if err != nil {
+		return err
+	}
+
+	server := &http.Server{
+		Addr:              fmt.Sprintf(":%d", opts.Port),
+		Handler:           router.Handler(),
+		ReadHeaderTimeout: readHeaderTimeout,
+		IdleTimeout:       idleTimeout,
+	}
+
+	if os.Getenv(envVariables.listenPid) == strconv.Itoa(os.Getpid()) {
+		// systemd socket activation
+		f := os.NewFile(3, "from systemd")
+		listener, err := net.FileListener(f)
+		if err != nil {
+			return err
+		}
+		return server.Serve(listener)
+	}
+	// cli activation
+	return server.ListenAndServe()
+}
+
+func newRouter(opts RunOpts) (*gin.Engine, error) {
+	router := gin.New()
+	router.Use(gin.Recovery())
+
+	if frameAncestors := os.Getenv(envVariables.frameAncestors); frameAncestors != "" {
+		cspMiddleware, err := frameAncestorsMiddleware(frameAncestors)
+		if err != nil {
+			return nil, fmt.Errorf("invalid %s: %w", envVariables.frameAncestors, err)
+		}
+		router.Use(cspMiddleware)
+	}
+	router.NoRoute(func(c *gin.Context) {
+		abortWithErrorPage(c, http.StatusNotFound)
+	})
 
 	pathPrefix := ""
 	if opts.StrictAuth {
 		secret := os.Getenv(envVariables.authSignSecret)
 		if secret == "" {
-			return fmt.Errorf("strict auth is enabled, but env variable %s is not set", envVariables.authSignSecret)
+			return nil, fmt.Errorf("strict auth is enabled, but env variable %s is not set", envVariables.authSignSecret)
 		}
 		authLocation := AuthLocation.PathParams
 		if authLocation == AuthLocation.PathParams {
@@ -97,23 +151,7 @@ func runProxy(opts RunOpts) error {
 	router.GET(fmt.Sprintf("%s/index.html", pathPrefix), serveIndex)
 	router.GET(fmt.Sprintf("%s/", pathPrefix), serveIndex)
 
-	if os.Getenv(envVariables.listenPid) == strconv.Itoa(os.Getpid()) {
-		// systemd socket activation
-		f := os.NewFile(3, "from systemd")
-		listener, err := net.FileListener(f)
-		if err != nil {
-			return err
-		}
-		if err = router.RunListener(listener); err != nil {
-			return err
-		}
-	} else {
-		// cli activation
-		if err := router.Run(fmt.Sprintf(":%d", opts.Port)); err != nil {
-			return err
-		}
-	}
-	return nil
+	return router, nil
 }
 
 func serveIndex(ctx *gin.Context) {
