@@ -14,7 +14,12 @@ jobs:
     strategy:
       matrix:
         goos: [linux]
-        goarch: [amd64]
+        goarch: [amd64, arm64]
+        include:
+          - goarch: amd64
+            tarball: go-vncproxy.tar.gz
+          - goarch: arm64
+            tarball: go-vncproxy-arm64.tar.gz
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -44,11 +49,11 @@ jobs:
         working-directory: dist
 
 
-      - name: Lay out the tarball as <commit>/go-vncproxy.tar.gz with a .sha256 next to it
+      - name: Lay out the tarball as <commit>/${{ matrix.tarball }} with a .sha256 next to it
         run: |
           mkdir -p "upload/${GITHUB_SHA}"
-          cp release.tgz "upload/${GITHUB_SHA}/go-vncproxy.tar.gz"
-          (cd "upload/${GITHUB_SHA}" && sha256sum go-vncproxy.tar.gz > go-vncproxy.tar.gz.sha256)
+          cp release.tgz "upload/${GITHUB_SHA}/${{ matrix.tarball }}"
+          (cd "upload/${GITHUB_SHA}" && sha256sum "${{ matrix.tarball }}" > "${{ matrix.tarball }}.sha256")
 
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v6
